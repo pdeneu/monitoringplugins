@@ -2,7 +2,7 @@
 
 # COPYRIGHT:
 #
-# This software is Copyright (c) 2013 GNE GmbH, Philipp Deneu
+# This software is Copyright (c) 2014 GNE GmbH, Philipp Deneu
 #                                <support@gne.de>
 #
 # (Except where explicitly superseded by other copyright notices)
@@ -100,8 +100,8 @@ Port
 Command for specified agent:
 
  - MTA:
-\- info
-- process and version info
+ \- info
+    - process and version info
  \- links
     - status of mta links
  \- uptime
@@ -141,11 +141,11 @@ use strict;
 use warnings;
 use Getopt::Long qw(:config no_ignore_case bundling);
 use Pod::Usage;
-use LWP::Simple;
+require LWP::UserAgent;
 $ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0;
 
 # version string
-my $version = 'Version: 1.0';
+my $version = 'Version: 1.1';
 
 # command line parameters
 my ( $help, $showVersion, $hostname, $user, $password, $mode, $command, $warning, $critical, $port, $ssl, $protocol, $hours, $minutes, $seconds);
@@ -181,7 +181,7 @@ if (!defined $command) { print "Option -l|--command is required\n"; pod2usage(2)
 
 # define vars
 my $returnCode = 3;
-my ($warnundeliverable, $warnerrors, $critundeliverable, $criterrors, $content, $url, $returnMessage, $warnoutbound, $warninbound, $warnsmtpsend, $warnsmtpreceive, $warndelayed, $critoutbound, $critinbound, $critsmtpsend, $critsmtpreceive, $critdelayed);
+my ($warnundeliverable, $warnerrors, $critundeliverable, $criterrors, $content, $url, $returnMessage, $warnoutbound, $warninbound, $warnsmtpsend, $warnsmtpreceive, $warndelayed, $critoutbound, $critinbound, $critsmtpsend, $critsmtpreceive, $critdelayed, $mtaname);
 my $urlpath = "";
 
 if ($mode eq "mta") {
@@ -189,11 +189,10 @@ if ($mode eq "mta") {
      # set defaults
      if (!defined $port) { $port = "7180" };
 
-     Connect();
-
-     my ($mtaname) = ($content =~ /\w+\sMTA - ([\-\_\w\d]+)\s/);
-
      if ($command eq "uptime") {
+          $urlpath = "home";
+          Connect();
+          ($mtaname) = ($content =~ /[\w\s\d]+MTA - ([\-\_\w\d]+)\s?</);
           $content =~ m/Up Time:\s(\d+)\sDays\s(\d+)\sHrs\s(\d+)\sMins/;
           my $time = int ($1*24*60*60)+($2*60*60)+($3*60);
 			 my $unit = "seconds";
@@ -210,6 +209,8 @@ if ($mode eq "mta") {
           }
           LeavePlugin (0, "$mtaname up since $time $unit|uptime=$time;;;;");
      } elsif ($command eq "links") {
+          $urlpath = "home";
+          Connect();
           my ($mtaopen, $mtaclosed, $poaopen, $poaclosed, $gatewayopen, $gatewayclosed) = ($content =~ m/Closed<\/FONT><\/TD>\n<\/TR><TR>\n<TD><FONT SIZE=-1>Domains<\/FONT><\/TD>\n<TD ALIGN="CENTER"><FONT SIZE=-1>(\d+)<\/FONT><\/TD>\n<TD ALIGN="CENTER"><FONT SIZE=-1>(\d+)<\/FONT><\/TD>\n<\/TR><TR>\n<TD><FONT SIZE=-1>Post Offices<\/FONT><\/TD>\n<TD ALIGN="CENTER"><FONT SIZE=-1>(\d+)<\/FONT><\/TD>\n<TD ALIGN="CENTER"><FONT SIZE=-1>(\d+)<\/FONT><\/TD>\n<\/TR><TR>\n<TD><FONT SIZE=-1>Gateways<\/FONT><\/TD>\n<TD ALIGN="CENTER"><FONT SIZE=-1>(\d+)<\/FONT><\/TD>\n<TD ALIGN="CENTER"><FONT SIZE=-1>(\d+)<\/FONT><\/TD>/i);
 
           if (($mtaclosed > 0) || ($poaclosed > 0) || ($gatewayclosed > 0)) {
@@ -218,6 +219,8 @@ if ($mode eq "mta") {
                LeavePlugin (0, "Domains $mtaopen/$mtaclosed, Post Offices $poaopen/$poaclosed, Gateways $gatewayopen/$gatewayclosed (open/closed)");
           }
      } elsif ($command eq "msgprocessed") {
+          $urlpath = "home";
+          Connect();
           (my $routed, my $routed10) = ($content =~ m/Routed[\<\>\/\w]+\n[\<\>\"\=\-\w\s]+>(\d+)[\<\/\w\>]+\n[\<\>\"\=\-\w\s]+>(\d+)/);
           (my $undeliverable, my $undeliverable10) = ($content =~ m/Undeliverable[\<\>\/\w]+\n[\<\>\"\=\-\w\s]+>(\d+)[\<\/\w\>]+\n[\<\>\"\=\-\w\s]+>(\d+)/);
           (my $errors, my $errors10) = ($content =~ m/Errors[\<\>\/\w]+\n[\<\>\"\=\-\w\s]+>(\d+)[\<\/\w\>]+\n[\<\>\"\=\-\w\s]+>(\d+)/);
@@ -237,6 +240,8 @@ if ($mode eq "mta") {
                LeavePlugin(0, "$routed Messages routed, $undeliverable Messages undeliverable, $errors Messages got errors.|routed=$routed;;;0; undeliverable=$undeliverable;$warnundeliverable;$critundeliverable;0; errors=$errors;$warnerrors;$criterrors;0;");
           }
      } elsif ($command eq "msgprocessed10") {
+          $urlpath = "home";
+          Connect();
           (my $routed, my $routed10) = ($content =~ m/Routed[\<\>\/\w]+\n[\<\>\"\=\-\w\s]+>(\d+)[\<\/\w\>]+\n[\<\>\"\=\-\w\s]+>(\d+)/);
           (my $undeliverable, my $undeliverable10) = ($content =~ m/Undeliverable[\<\>\/\w]+\n[\<\>\"\=\-\w\s]+>(\d+)[\<\/\w\>]+\n[\<\>\"\=\-\w\s]+>(\d+)/);
           (my $errors, my $errors10) = ($content =~ m/Errors[\<\>\/\w]+\n[\<\>\"\=\-\w\s]+>(\d+)[\<\/\w\>]+\n[\<\>\"\=\-\w\s]+>(\d+)/);
@@ -256,10 +261,12 @@ if ($mode eq "mta") {
                LeavePlugin(0, "$routed10 Messages routed, $undeliverable10 Messages undeliverable, $errors10 Messages got errors in last 10 minutes.|routed10=$routed10;;;0; undeliverable10=$undeliverable10;$warnundeliverable;$critundeliverable;0; errors10=$errors10;$warnerrors;$criterrors;0;");
           }
      } elsif ($command eq "info") {
-          $urlpath="server";
+          $urlpath = "server";
           Connect();
+          ($mtaname) = ($content =~ /[\w\s\d]+MTA - ([\-\_\w\d]+)\s?</);
           (my $pid) = ($content =~ m/<TR><TD><FONT SIZE=-1>Main Thread Process ID<\/FONT><\/TD><TD><FONT SIZE=-1>(\d+)<\/FONT><\/TD><\/TR>/);
-          (my $version) = ($content =~ m/<FONT SIZE=-1>GroupWise Agent Build Version<\/FONT><\/TD><TD BGCOLOR="#FFFFFF">\n<FONT SIZE=-1>([\d\W]+)?\s+<\/FONT><\/TD><\/TR>/i);
+         # (my $version) = ($content =~ m/<FONT SIZE=-1>GroupWise Agent Build Version<\/FONT><\/TD><TD BGCOLOR="#FFFFFF">\n<FONT SIZE=-1>([\d\W]+)?\s+<\/FONT><\/TD><\/TR>/i);
+          (my $version) = ($content =~ m/<FONT SIZE=-1>GroupWise Agent Build Version<\/FONT><\/TD><TD BGCOLOR="#FFFFFF">[\n]?<FONT SIZE=-1>([\d\w\.]+)[\s\W\d]+?<\/FONT><\/TD><\/TR>/i);
           LeavePlugin (0, "MTA/Domain: $mtaname; Version: $version; PID: $pid");
      } else {
           print "Unknown command for $mode in option -l|--command.\n"; pod2usage(1);
@@ -326,7 +333,7 @@ if ($mode eq "mta") {
           my $time = ($1*24*60*60)+($2*60*60)+($3*60);
           LeavePlugin (0, "$poaname up since $time seconds|uptime=$time;;;;");
      } elsif ($command eq "users") {
-          my ($users) = ($content =~ m/>C\/S Users<\/FONT><\/A><\/TD>[\<\w\"\s\#\d\>\=]+\n[\<\w\s\"\=\>]+<FONT SIZE=-1>(\d+)<\/FONT><\/TD>/i);
+          my ($users) = ($content =~ m/>C\/S Users<\/FONT><\/A><\/TD>[\<\w\"\s\#\d\>\=]+[\n]?[\<\w\s\"\=\>]+<FONT SIZE=-1>(\d+)<\/FONT><\/TD>/i);
 
           if (($critical) && ($users >= $critical)) {
                LeavePlugin (2, "$users connected C/S Users|users=$users;;$critical;0;");
@@ -355,14 +362,15 @@ if ($mode eq "mta") {
 # functions
 
 sub Connect {
+     my $ua = LWP::UserAgent->new;
+     $ua->timeout(30);
+     $ua->env_proxy;
+     $ua->ssl_opts( verify_hostnames => 0 );
+     $ua->credentials("$hostname:$port","GroupWise Agent",$user=>$password);
      if ($ssl) { $protocol = "https"; } else  { $protocol = "http" };
-     if (($user) || ($password)) {
-          $url = "$protocol://$user:$password\@$hostname:$port";
-     } else {
-          $url = "$protocol://$hostname:$port";
-     }
-     $content = get("$url/$urlpath");
-
+     $url = "$protocol://$hostname:$port/$urlpath";
+     $content = $ua->get( $url );
+     $content = $content->decoded_content;
      if (!defined $content) { 
           LeavePlugin(2, "$mode ($url) is not reachable, please check connection settings!");
      } 
@@ -375,4 +383,8 @@ sub LeavePlugin {
      print $state[$exitCode]." - $comment\n";
      exit $exitCode;
 }
+
+###
+#     $content = $ua->get('$protocol://$hostname:$port/$urlpath');
+#     $content = $ua->get('https://10.129.127.3:7180/home');
 
